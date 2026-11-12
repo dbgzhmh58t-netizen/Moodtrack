@@ -1,1 +1,65 @@
-
+<!doctype html>
+<html lang="sv">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#172b3a">
+<title>MoodTrack</title>
+<style>
+:root{--bg:#f3f6f8;--ink:#172b3a;--muted:#647482;--line:#dce4e9;--accent:#236b73;--soft:#e7f1f1}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 system-ui,-apple-system,sans-serif}
+header{background:var(--ink);color:white;padding:24px 18px}header,main{padding-left:max(16px,env(safe-area-inset-left));padding-right:max(16px,env(safe-area-inset-right))}header .wrap,main{max-width:760px;margin:auto}
+h1{margin:0;font-size:27px}header p{margin:4px 0 0;color:#d4e0e7}.card{background:white;border:1px solid var(--line);border-radius:16px;padding:18px;margin:16px 0;box-shadow:0 3px 14px #1b35400a}
+h2{font-size:19px;margin:0 0 10px}.muted{color:var(--muted);font-size:13px}.scale{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px;margin:14px 0}
+.scale button{min-height:52px;border:1px solid var(--line);border-radius:12px;background:#fff;color:var(--ink);font-size:18px;font-weight:750;touch-action:manipulation}
+.scale button[aria-pressed=true]{background:var(--accent);color:white;border-color:var(--accent)}.scale-labels{display:flex;justify-content:space-between;font-size:12px;color:var(--muted)}
+label{display:block;font-size:14px;font-weight:650;margin:14px 0 5px}input,textarea,select{width:100%;padding:12px;border:1px solid var(--line);border-radius:10px;font:inherit;background:white;color:var(--ink)}
+textarea{min-height:75px}.primary,.actions button{border:0;border-radius:10px;padding:12px 15px;font:inherit;font-weight:700;touch-action:manipulation}
+.primary{background:var(--accent);color:white;width:100%;margin-top:14px}.actions{display:flex;flex-wrap:wrap;gap:8px}.actions button{background:var(--soft);color:var(--ink)}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.stat{background:#f6f8f9;border-radius:12px;padding:12px}.stat strong{display:block;font-size:24px}.stat span{font-size:12px;color:var(--muted)}
+canvas{width:100%;height:190px;display:block}.entry{border-top:1px solid var(--line);padding:12px 0}.score{font-size:20px;font-weight:750;color:var(--accent)}
+.delete{float:right;border:0;background:none;color:#8b3434;padding:6px}.notice{font-size:13px;color:var(--muted);background:#f6f8f9;padding:12px;border-radius:10px}
+@media(max-width:380px){.scale{gap:5px}.scale button{min-height:48px}}
+</style></head>
+<body>
+<header><div class="wrap"><h1>MoodTrack</h1><p>En lugn plats för att följa hur det känns över tid.</p></div></header>
+<main>
+<section class="card"><h2>Hur känns det just nu?</h2><p class="muted">Välj en siffra. Det finns inget rätt eller fel svar.</p>
+<div class="scale" id="scale" role="group" aria-label="Måendenivå 0 till 10"></div><div class="scale-labels"><span>0 · Mår superbra</span><span>10 · Jobbigast</span></div>
+<label for="trigger">Vad känns jobbigt? (frivilligt)</label><select id="trigger"><option value="">Vill inte ange</option><option>Skola eller krav</option><option>Sociala situationer</option><option>Tankar eller oro</option><option>Kroppsliga känslor</option><option>Familj eller relationer</option><option>Vet inte</option><option>Annat</option></select>
+<label for="note">Vill du skriva något mer? (frivilligt)</label><textarea id="note" placeholder="Till exempel vad som hände eller vad du behöver just nu…"></textarea>
+<label for="helped">Vad skulle hjälpa just nu? (frivilligt)</label><input id="helped" placeholder="Till exempel lugn och ro, sällskap, paus…">
+<button class="primary" id="save">Spara avstämning</button><p class="muted" id="feedback" aria-live="polite"></p><p class="muted" id="storageStatus"></p></section>
+<section class="card"><h2>Överblick</h2><div class="stats"><div class="stat"><strong id="count">0</strong><span>Avstämningar</span></div><div class="stat"><strong id="average">–</strong><span>Genomsnitt</span></div><div class="stat"><strong id="latest">–</strong><span>Senaste nivå</span></div></div>
+<label for="period">Visa diagram</label><select id="period"><option value="7">Senaste 7 dagarna</option><option value="30">Senaste 30 dagarna</option><option value="all">All historik</option></select><canvas id="chart" width="800" height="220"></canvas><p class="muted">Diagrammet visar skattningar, inte en diagnos eller ett betyg.</p></section>
+<section class="card"><h2>Historik</h2><div class="actions"><button id="export">Exportera säkerhetskopia</button><button id="csv">Exportera CSV</button><button id="importBtn">Importera säkerhetskopia</button><input id="importFile" type="file" accept="application/json" hidden></div><div id="history"><p class="muted">Inga avstämningar ännu.</p></div></section>
+<section class="card"><h2>Integritet och trygghet</h2><p class="notice">Registreringarna sparas lokalt i webbläsaren på den här enheten och skickas inte till GitHub eller någon server. Öppna alltid samma webbadress i Safari. Rensa inte webbplatsdata om historiken ska behållas. Exportera regelbundet en säkerhetskopia. Appen är ett stöd för samtal, inte vård eller akut hjälp. Vid omedelbar fara i Sverige, ring 112. För vårdvägledning, ring 1177.</p></section>
+</main>
+<script>
+(()=>{'use strict';
+const DB='MoodTrackDB',STORE='entries',LEGACY='moodtrack_entries_v1';let db=null,entries=[],selected=null;
+const $=id=>document.getElementById(id),uid=()=>crypto.randomUUID?crypto.randomUUID():String(Date.now())+Math.random();
+function openDB(){return new Promise((ok,no)=>{let q=indexedDB.open(DB,1);q.onupgradeneeded=()=>{if(!q.result.objectStoreNames.contains(STORE))q.result.createObjectStore(STORE,{keyPath:'id'})};q.onsuccess=()=>ok(q.result);q.onerror=()=>no(q.error)})}
+function allDB(){return new Promise((ok,no)=>{let q=db.transaction(STORE).objectStore(STORE).getAll();q.onsuccess=()=>ok(q.result||[]);q.onerror=()=>no(q.error)})}
+function saveDB(){return new Promise((ok,no)=>{let t=db.transaction(STORE,'readwrite'),s=t.objectStore(STORE);s.clear();entries.forEach(e=>s.put(e));t.oncomplete=ok;t.onerror=()=>no(t.error)})}
+function esc(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+function renderScale(){let s=$('scale');s.innerHTML='';for(let n=0;n<=10;n++){let b=document.createElement('button');b.type='button';b.textContent=n;b.setAttribute('aria-pressed',String(selected===n));b.onclick=()=>{selected=n;renderScale();$('feedback').textContent='Du valde '+n+' av 10.'};s.append(b)}}
+function date(t){return new Date(t).toLocaleString('sv-SE',{dateStyle:'medium',timeStyle:'short'})}
+function download(name,data,type){let a=document.createElement('a'),u=URL.createObjectURL(new Blob([data],{type}));a.href=u;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(u),1200)}
+function chart(){let c=$('chart'),x=c.getContext('2d'),w=c.width,h=c.height,L=38,R=14,T=12,B=28;x.clearRect(0,0,w,h);x.font='13px system-ui';for(let n=0;n<=10;n++){let y=T+(10-n)*(h-T-B)/10;x.strokeStyle='#dce4e9';x.beginPath();x.moveTo(L,y);x.lineTo(w-R,y);x.stroke();x.fillStyle='#647482';x.fillText(n,12,y+4)}
+let d=entries.slice().sort((a,b)=>a.ts-b.ts),p=$('period').value;if(p!=='all')d=d.filter(e=>e.ts>Date.now()-Number(p)*86400000);if(!d.length){x.fillText('Dina registreringar visas här.',L+8,h/2);return}
+let xx=i=>d.length===1?(L+w-R)/2:L+i*(w-L-R)/(d.length-1),yy=v=>T+(10-v)*(h-T-B)/10;x.strokeStyle='#236b73';x.lineWidth=3;x.beginPath();d.forEach((e,i)=>i?x.lineTo(xx(i),yy(e.score)):x.moveTo(xx(i),yy(e.score)));x.stroke();d.forEach((e,i)=>{x.fillStyle='#236b73';x.beginPath();x.arc(xx(i),yy(e.score),5,0,7);x.fill()})}
+function render(){let sorted=entries.slice().sort((a,b)=>b.ts-a.ts);$('count').textContent=entries.length;$('average').textContent=entries.length?(entries.reduce((s,e)=>s+e.score,0)/entries.length).toFixed(1).replace('.',','):'–';$('latest').textContent=sorted.length?sorted[0].score+'/10':'–';chart();
+$('history').innerHTML=sorted.length?sorted.map(e=>'<div class="entry"><button class="delete" data-id="'+esc(e.id)+'">Ta bort</button><span class="score">'+e.score+'/10</span> <span class="muted">'+date(e.ts)+'</span>'+(e.trigger?'<p><b>Område:</b> '+esc(e.trigger)+'</p>':'')+(e.note?'<p>'+esc(e.note)+'</p>':'')+(e.helped?'<p><b>Skulle hjälpa:</b> '+esc(e.helped)+'</p>':'')+'</div>').join(''):'<p class="muted">Inga avstämningar ännu.</p>';
+document.querySelectorAll('.delete').forEach(b=>b.onclick=async()=>{if(confirm('Ta bort den här avstämningen?')){entries=entries.filter(e=>e.id!==b.dataset.id);await saveDB();render()}})}
+$('save').onclick=async()=>{if(selected===null){$('feedback').textContent='Välj en siffra mellan 0 och 10 först.';return}
+entries.push({id:uid(),ts:Date.now(),score:selected,trigger:$('trigger').value,note:$('note').value.trim(),helped:$('helped').value.trim()});
+try{await saveDB();selected=null;$('trigger').value='';$('note').value='';$('helped').value='';$('feedback').textContent='Sparat på den här enheten.';renderScale();render()}catch(e){$('feedback').textContent='Kunde inte spara. Exportera en säkerhetskopia.'}};
+$('period').onchange=chart;
+$('export').onclick=()=>download('moodtrack-backup.json',JSON.stringify({version:2,entries},null,2),'application/json');
+$('csv').onclick=()=>download('moodtrack.csv','\ufeff'+[['Datum','Niva','Omrade','Anteckning','Vad skulle hjalpa'],...entries.map(e=>[date(e.ts),e.score,e.trigger,e.note,e.helped])].map(r=>r.map(v=>'"'+String(v??'').replace(/"/g,'""')+'"').join(';')).join('\r\n'),'text/csv;charset=utf-8');
+$('importBtn').onclick=()=>$('importFile').click();
+$('importFile').onchange=async ev=>{let f=ev.target.files[0];if(!f)return;try{let o=JSON.parse(await f.text()),a=Array.isArray(o)?o:o.entries;if(!Array.isArray(a)||!a.every(e=>Number(e.score)>=0&&Number(e.score)<=10&&Number.isFinite(Number(e.ts))))throw Error();if(confirm('Importera '+a.length+' avstämningar?')){let ids=new Set(entries.map(e=>e.id));a.forEach(e=>{let z={...e,id:e.id||uid(),score:Number(e.score)};if(!ids.has(z.id))entries.push(z)});await saveDB();render();$('feedback').textContent='Säkerhetskopian är importerad.'}}catch{$('feedback').textContent='Filen kunde inte läsas.'}ev.target.value=''};
+async function init(){try{db=await openDB();entries=await allDB();let old=JSON.parse(localStorage.getItem(LEGACY)||'[]');if(Array.isArray(old)){let ids=new Set(entries.map(e=>e.id));old.forEach(e=>{if(!ids.has(e.id)&&Number(e.score)>=0&&Number(e.score)<=10)entries.push(e)});await saveDB()}$('storageStatus').textContent='Lagring aktiv: IndexedDB på den här enheten.'}catch(e){$('storageStatus').textContent='Varning: lokal databas kunde inte startas. Exportera en säkerhetskopia.'}renderScale();render()}init();
+})();
+</script></body></html>
